@@ -1,22 +1,31 @@
 import socket
 import struct
-import numpy as np
+import Packet as pk
+import threading
+import ipaddress
 
 from random import randint
 
 
-class Client(object):
+def get_host_name():
+    name = socket.gethostname()
+    host_name = bytes(name, 'utf-8')
+    return host_name
 
-    def __init__(self, mac_addr, port):
-        self.mac_addr = mac_addr
+
+class Client(threading.Thread):
+
+    def __init__(self, mac_address, port, gui):
+        super().__init__()
+        self.gui = gui
+        self.mac_address = mac_address
         self.port = port
         self.ip = None
-        self.requested_ip = b'\xc0\xa8\x00\x01' #  test
-        self.server_ip = None
-        self.options = np.zeros(12)
+        self.requested_ip = b'\xc0\xa8\x00\x01'
+        self.server_ip = ipaddress.ip_address('0.0.0.0')
         self.mask = None
         self.timestamp = 0
-        self.gateway_addr = None
+        self.gateway_address = None
         self.time_servers = []
         self.client_name = None
         self.dns_servers = []
@@ -30,100 +39,48 @@ class Client(object):
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.settimeout(5)
         self.sock.bind(('', self.port))
-        self.transactionID = b''
-        for i in range(4):
-            n = randint(0, 255)
-            self.transactionID += struct.pack('!B', n)
+        self.transactionID = randint(0, 2**32 - 1)
+        self.MAGIC_COOKIE = '0x63825363'
 
     def getMacAddressInBytes(self):
         mac = b''
         for i in range(2, 14, 2):
-            m = int(self.mac_addr[i:i + 2], 16)
+            m = int(self.mac_address[i:i + 2], 16)
             mac += struct.pack('!B', m)
         return mac
 
-    def get_host_name(self):
-        name = socket.gethostname()
-        host_name = bytes(name, 'utf-8')
-        return host_name
-
     def discover(self):
-        packet = b''
-        packet += b'\x01'  # Message type: Boot Request
-        packet += b'\x01'  # Hardware type: Ethernet
-        packet += b'\x06'  # Hardware address length: 6
-        packet += b'\x00'  # Hops: 0      3
-        packet += self.transactionID  # Transaction ID (random)   7
-        packet += b'\x00\x00'  # Seconds elapsed: 0
-        packet += b'\x00\x00'  # Flags: 0    11
-        packet += b'\x00\x00\x00\x00'  # Client IP address: 0.0.0.0   15
-        packet += b'\x00\x00\x00\x00'  # Your (client) IP address: 0.0.0.0
-        packet += b'\x00\x00\x00\x00'  # Next Server IP address: 0.0.0.0
-        packet += b'\x00\x00\x00\x00'  # Gateway IP address: 0.0.0.0  27
-        packet += self.getMacAddressInBytes()  # Client hardware address(16 bytes)  33
-        packet += b'\x00' * 10   # 43
-        packet += b'\x00' * 64  # Server name not given   107
-        packet += b'\x00' * 124  # Boot file name not given   231
-        packet += b'\x63\x82\x53\x63'  # Magic Cookie: DHCP   235
-        packet += b'\x35\x01\x01'  # Option 53, Message type  238
-        packet += b'\x32\x04\xc0\xa8\x00\x01'  # Option 50, Request IP address
-        packet += b'\x0c\x0f'
-        packet += self.get_host_name()
-        packet += b'\xff'  # Option 255 Endmark
+        pack = pk.Packet(self.gui)
+        pack.OP = 1
+        pack.XID = self.transactionID
+        pack.CHADDR = self.getMacAddressInBytes()
+        pack.MSG_TYPE = 1
+        packet = pack.pack()
 
-        self.sock.sendto(packet, ('<broadcast>', 67))
+        print(packet)
+        print(len(packet))
+        self.sock.sendto(packet, ('<broadcast>', 34344))
+        data, address = self.sock.recvfrom(1024)
+        packet = pk.Packet(self.gui)
+        packet.unpack(data)
+        print(len(packet.options))
 
     def offer(self, data):
-        given_ip = data[16:20]
-        # trebuie sa mai verificam daca este activa optiune de requested ip din gui
-        """
-                   byte = 239
-                   while byte < len(data):
-                       if data[byte] == 51:
-                           self.lease_time = data[byte + 2] << 24 | data[byte + 3] << 16 | data[byte + 4] << 8 | data[byte + 5]
-                           break
-                       else:
-                           offset = data[byte + 1]
-                           byte = byte + offset + 2
-                   return 0
-               else:
-                   return 1
-        """
-        if given_ip == self.requested_ip:
-            return 0
-        else:
-            return 1
-
-    def server_bin_to_int(self):
-        ip = ''
-        for i in range(len(self.server_ip) - 1):
-            ip += str(self.server_ip[i]) + '.'
-        ip += str(self.server_ip[len(self.server_ip) - 1])
-        return ip
+        for option in data.options:
+            if option[0] == 50:
+                if data.YIADDR == self.requested_ip:
+                    return True
+                else:
+                    return False
+        return True
 
     def request(self):
-        packet = b''
-        packet += b'\x01'  # Message type: Boot Request
-        packet += b'\x01'  # Hardware type: Ethernet
-        packet += b'\x06'  # Hardware address length: 6
-        packet += b'\x00'  # Hops: 0      3
-        packet += self.transactionID  # Transaction ID (random)   7
-        packet += b'\x00\x00'  # Seconds elapsed: 0
-        packet += b'\x00\x00'  # Flags: 0    11
-        packet += b'\x00\x00\x00\x00'  # Client IP address: 0.0.0.0   15
-        packet += b'\x00\x00\x00\x00'  # Your (client) IP address: 0.0.0.0
-        packet += b'\x00\x00\x00\x00'  # Next Server IP address: 0.0.0.0   de verificat daca trimitem pe broadcast
-        packet += b'\x00\x00\x00\x00'  # Gateway IP address: 0.0.0.0  27
-        packet += self.getMacAddressInBytes()  # Client hardware address(16 bytes)  33
-        packet += b'\x00' * 10  # 43
-        packet += b'\x00' * 64  # Server name not given   107
-        packet += b'\x00' * 124  # Boot file name not given   231
-        packet += b'\x63\x82\x53\x63'  # Magic Cookie: DHCP   235
-        packet += b'\x35\x01\x03'  # Option 53, Message type  238
-        packet += b'\x32\x04\xc0\xa8\x00\x01'  # Option 50, Request IP address
-        packet += b'\x36\x04'  # Option 54 DHCP Server
-        packet += self.server_ip
-        packet += b'\xff'  # Option 255 Endmark
+        pack = pk.Packet(self.gui)
+        pack.OP = 1
+        pack.XID = self.transactionID
+        pack.CHADDR = self.getMacAddressInBytes()
+        pack.MSG_TYPE = 3
+        packet = pack.pack()  # Option 53, Message type  238
 
         self.sock.sendto(packet, ('<broadcast>', 67))
 
@@ -141,13 +98,23 @@ class Client(object):
                 self.mask = data[byte + 2: byte + 6]
 
     def listen_broadcast(self):
-        data, addr = self.sock.recvfrom(1024)
-        if data[4:8] == self.transactionID:
-            if data[0] == 2 and data[238] == 2:
-                if self.offer(data) == 1:
-                    self.discover()
-            elif data[0] == 2 and data[238] == 5:
-                self.acknowledge(data)
+        packet = pk.Packet(self.gui)
+        data_received = []
+        temp = False
+        while True:
+            if not temp:
+                self.discover()
+            for i in range(10):
+                data_received.append(self.sock.recvfrom(1024))
+            for data in data_received:
+                packet.unpack(data[0])
+                if self.transactionID == packet.XID and packet.MAGIC_COOKIE == self.MAGIC_COOKIE:
+                    if packet.MSG_TYPE == 2:
+                        if self.offer(packet):
+                            temp = True
+                            break
+            if not temp:
+                continue
 
     def request(self):
         print('request: ' + self.ip)

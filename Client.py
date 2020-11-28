@@ -20,27 +20,30 @@ class Client(threading.Thread):
         self.gui = gui
         self.mac_address = mac_address
         self.port = port
-        self.ip = None
-        self.requested_ip = b'\xc0\xa8\x00\x01'
+        self.ip = ipaddress.ip_address('0.0.0.0')
+        self.requested_ip = ipaddress.ip_address('0.0.0.0')
+        self.received_ip = ipaddress.ip_address('0.0.0.0')
         self.server_ip = ipaddress.ip_address('0.0.0.0')
-        self.mask = None
+        self.mask = ipaddress.ip_address('0.0.0.0')
+        self.gateway_address = ipaddress.ip_address('0.0.0.0')
         self.timestamp = 0
-        self.gateway_address = None
         self.time_servers = []
         self.client_name = None
         self.dns_servers = []
-        self.requested_lease_time = None
         self.lease_time = None
+        self.renewal_value = None
+        self.rebinding_value = None
         self.start_lease_time = None
         self.end_lease_time = None
-        self.smtp_server = None
-        self.pop3_server = None
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.settimeout(5)
-        self.sock.bind(('', self.port))
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.settimeout(2)
+        self.sock.bind(('192.168.1.87', self.port))
         self.transactionID = randint(0, 2**32 - 1)
         self.MAGIC_COOKIE = '0x63825363'
+        self.nack_counter = 0
 
     def getMacAddressInBytes(self):
         mac = b''
@@ -55,15 +58,17 @@ class Client(threading.Thread):
         pack.XID = self.transactionID
         pack.CHADDR = self.getMacAddressInBytes()
         pack.MSG_TYPE = 1
-        packet = pack.pack()
+        f = open("ip_history.txt", "r")
+        ip_list = f.read().split('\n')
+        self.requested_ip = ip_list[-1]
+        pack.ip = ipaddress.ip_address(ip_list[-1])
+        f.close()
 
-        print(packet)
-        print(len(packet))
-        self.sock.sendto(packet, ('<broadcast>', 34344))
-        data, address = self.sock.recvfrom(1024)
-        packet = pk.Packet(self.gui)
-        packet.unpack(data)
-        print(len(packet.options))
+        packet = pack.pack()
+        self.gui.setText(packet)
+        self.sock.sendto(packet, ('255.255.255.255', 67))
+        self.listen_broadcast()
+        print(self.received_ip)
 
     def offer(self, data):
         for option in data.options:
@@ -80,44 +85,90 @@ class Client(threading.Thread):
         pack.XID = self.transactionID
         pack.CHADDR = self.getMacAddressInBytes()
         pack.MSG_TYPE = 3
-        packet = pack.pack()  # Option 53, Message type  238
-
+        pack.ip = self.received_ip
+        packet = pack.pack()
         self.sock.sendto(packet, ('<broadcast>', 67))
+        self.listen_broadcast()
 
-    def acknowledge(self, data):
-        self.ip = data[12:16]
-        byte = 239
-        while byte < len(data):
-            if data[byte] == 54:
-                self.server_ip = data[byte + 2: byte + 6]
-                continue
-            elif data[byte] == 51:
-                self.lease_time = data[byte + 2] << 24 | data[byte + 3] << 16 | data[byte + 4] << 8 | data[byte + 5]
-                continue
-            elif data[byte] == 1:
-                self.mask = data[byte + 2: byte + 6]
+    def acknowledge(self, packet):
+        self.ip = packet.YIADDR
+        self.server_ip = packet.SIADDR
+
+        for option in packet.options:
+            if option[0] == 51:
+                self.lease_time = struct.unpack_from('!I', option[2])[0]
+            if option[0] == 1:
+                self.mask = option[2]
+            if option[0] == 3:
+                self.gateway_address = option[2]
+            if option[0] == 58:
+                self.renewal_value = struct.unpack_from('!I', option[2])[0]
+            if option[0] == 59:
+                self.renewal_value = struct.unpack_from('!I', option[2])[0]
+            # 2, 4 si 15 de intrebat
+        f = open("ip_history.txt", "a")
+        f.write('\n' + str(self.ip))
+        f.close()
+
+    def release(self):
+        pack = pk.Packet(self.gui)
+        pack.OP = 1
+        pack.XID = self.transactionID
+        pack.CHADDR = self.getMacAddressInBytes()
+        pack.MSG_TYPE = 7
+        pack.CIADDR = self.ip
+        packet = pack.pack()
+        self.sock.sendto(packet, (str(self.server_ip), 67))
+        self.ip = ipaddress.ip_address('0.0.0.0')
+        self.server_ip = ipaddress.ip_address('0.0.0.0')
+        self.gateway_address = ipaddress.ip_address('0.0.0.0')
+        self.requested_ip = ipaddress.ip_address('0.0.0.0')
+        self.received_ip = ipaddress.ip_address('0.0.0.0')
+        self.mask = ipaddress.ip_address('0.0.0.0')
+        self.lease_time = 0
+        self.renewal_value = 0
+        self.rebinding_value = 0
+        self.start_lease_time = 0
+        self.end_lease_time = 0
+
+    def inform(self):
+        pack = pk.Packet(self.gui)
+        pack.OP = 1
+        pack.XID = self.transactionID
+        pack.CHADDR = self.getMacAddressInBytes()
+        pack.MSG_TYPE = 8
+        packet = pack.pack()
+        self.sock.sendto(packet, (str(self.server_ip), 67))
 
     def listen_broadcast(self):
         packet = pk.Packet(self.gui)
         data_received = []
-        temp = False
+
         while True:
-            if not temp:
-                self.discover()
-            for i in range(10):
-                data_received.append(self.sock.recvfrom(1024))
+            for i in range(4):
+                try:
+                    data_received.append(self.sock.recvfrom(1024))
+                except Exception:
+                    continue
             for data in data_received:
                 packet.unpack(data[0])
                 if self.transactionID == packet.XID and packet.MAGIC_COOKIE == self.MAGIC_COOKIE:
                     if packet.MSG_TYPE == 2:
                         if self.offer(packet):
-                            temp = True
+                            self.received_ip = packet.YIADDR
                             break
-            if not temp:
-                continue
+                        else:
+                            self.received_ip = packet.YIADDR
+                    if packet.MSG_TYPE == 5:
+                        self.acknowledge(packet)
+                    if packet.MSG_TYPE == 6:
+                        self.nack_counter += 1
+                        if self.nack_counter <= 4:
+                            self.discover()
+                    if packet.MSG_TYPE == 7:
+                        self.release()
 
-    def request(self):
-        print('request: ' + self.ip)
+            break
 
     def get_ip(self):
         return self.ip

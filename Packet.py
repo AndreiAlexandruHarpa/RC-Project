@@ -6,7 +6,7 @@ import socket
 class Packet(object):
     def __init__(self, gui):
         self.OP = None
-        self.HTYPE = 0  # Hardware type: Ethernet
+        self.HTYPE = 1  # Hardware type: Ethernet
         self.HLEN = 6  # Hardware address length: 6
         self.HOPS = 0  # Hops: 0
         self.XID = None  # Transaction ID (random)
@@ -18,13 +18,14 @@ class Packet(object):
         self.GIADDR = ipaddress.ip_address('0.0.0.0')  # Gateway IP address: 0.0.0.0
         self.CHADDR = None  # Client hardware address(16 bytes)
         self.SNAME = b'\x00' * 64  # Server name
-        self.BNAME = b'\x00' * 124  # Boot file name
+        self.BNAME = b'\x00' * 128  # Boot file name
         self.MAGIC_COOKIE = b'\x63\x82\x53\x63'  # Magic Cookie: DHCP
         self.MSG_TYPE = None
         self.gui = gui
+        self.ip = ipaddress.ip_address('0.0.0.0')
         self.options = []
 
-    def pack(self, ):
+    def pack(self):
         packet = b''
         packet += struct.pack('!BBBB', self.OP, self.HTYPE, self.HLEN, self.HOPS)
         packet += struct.pack('!I', self.XID)
@@ -36,7 +37,7 @@ class Packet(object):
         # options
         packet += b'\x35\x01' + struct.pack('!B', self.MSG_TYPE)  # Option 53, Message type
         if self.gui.REQUESTED_IP.get():
-            packet += b'\x32\x04\xc0\xa8\x00\x01'  # Option 50, Request IP address
+            packet += b'\x32\x04' + struct.pack('!I', int(self.ip))  # Option 50, Request IP address
         if self.gui.TIME_OFFSET.get():
             packet += b'\x02\x04\x00\x00\x00\x00'
         if self.gui.PARAMETER_REQUEST_LIST.get():
@@ -77,16 +78,16 @@ class Packet(object):
         self.CHADDR = packet[28:34]
         self.SNAME = struct.unpack_from('64s', packet, 44)[0]
         self.BNAME = struct.unpack_from('124s', packet, 108)[0]
-        self.MAGIC_COOKIE = hex(struct.unpack_from('!I', packet, 232)[0])
+        self.MAGIC_COOKIE = hex(struct.unpack_from('!I', packet, 236)[0])
 
-        start = 236
+        start = 240
         while start <= len(packet):
             if packet[start] == 255:
                 break
             length = packet[start + 1]
             offset = start + 2
             if packet[start] == 53:
-                self.MSG_TYPE = int(struct.unpack('!B', packet[start + 2])[0])
+                self.MSG_TYPE = packet[start + 2]
                 start += 2 + length
                 continue
             self.options.append((packet[start], length, packet[offset:offset + length]))

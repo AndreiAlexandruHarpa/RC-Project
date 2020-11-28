@@ -3,12 +3,12 @@ import Client
 import uuid
 import tkinter as tk
 
-MAC_ADDRESS = hex(uuid.getnode())
+MAC_ADDRESS = hex(uuid.getnode() - 1)
 
 
 class GUI:
     def __init__(self, gui_object):
-        self.client = Client.Client(MAC_ADDRESS, 34343, self)
+        self.client = Client.Client(MAC_ADDRESS, 68, self)
         self.client.start()
         self.left_frame1 = Frame(gui_object)
         self.left_frame2 = Frame(gui_object)
@@ -21,10 +21,10 @@ class GUI:
         self.right_frame.grid(row=0, column=2)
 
         self.discover = Button(self.bottom_frame, text="Discover", command=self.client.discover)
-        self.request = Button(self.bottom_frame, text="Request")
+        self.request = Button(self.bottom_frame, text="Request", command=self.client.request)
         self.decline = Button(self.bottom_frame, text="Decline")
-        self.release = Button(self.bottom_frame, text="Release")
-        self.inform = Button(self.bottom_frame, text="Inform")
+        self.release = Button(self.bottom_frame, text="Release", command=self.client.release)
+        self.inform = Button(self.bottom_frame, text="Inform", command=self.client.inform)
 
         self.REQUESTED_IP = IntVar()
         self.SUBNET_MASK = IntVar()
@@ -71,8 +71,6 @@ class GUI:
 
         self.text = Text(self.right_frame, width=50, height=20, background='black', foreground='mediumspringgreen')
 
-        self.text.insert(INSERT, "TESTTTTTTTTT")
-
         o1.grid(row=1, column=0)
         o2.grid(row=3, column=0)
         o3.grid(row=5, column=0)
@@ -107,3 +105,6 @@ class GUI:
         self.decline.grid(row=0, column=2, padx=5, pady=5)
         self.release.grid(row=0, column=3, padx=5, pady=5)
         self.inform.grid(row=0, column=4, padx=5, pady=5)
+
+    def setText(self, info):
+        self.text.insert(INSERT, str(info))

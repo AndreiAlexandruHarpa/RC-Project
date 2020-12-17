@@ -2,30 +2,25 @@ from tkinter import *
 import Client
 import uuid
 import tkinter as tk
+from threading import Thread
+
 
 MAC_ADDRESS = hex(uuid.getnode() - 1)
 
 
-class GUI:
+class GUI(Thread):
     def __init__(self, gui_object):
+        super().__init__()
         self.client = Client.Client(MAC_ADDRESS, 68, self)
-        self.client.start()
         self.left_frame1 = Frame(gui_object)
         self.left_frame2 = Frame(gui_object)
         self.bottom_frame = Frame(gui_object)
         self.right_frame = Frame(gui_object)
-
-        self.left_frame1.grid(row=0, column=0)
-        self.left_frame2.grid(row=0, column=1)
-        self.bottom_frame.grid(row=1, column=0, columnspan=3)
-        self.right_frame.grid(row=0, column=2)
-
         self.discover = Button(self.bottom_frame, text="Discover", command=self.client.discover)
-        self.request = Button(self.bottom_frame, text="Request", command=self.client.request)
-        self.decline = Button(self.bottom_frame, text="Decline")
-        self.release = Button(self.bottom_frame, text="Release", command=self.client.release)
-        self.inform = Button(self.bottom_frame, text="Inform", command=self.client.inform)
-
+        self.request = Button(self.bottom_frame, text="Request", command=self.client.request, state=tk.DISABLED)
+        self.decline = Button(self.bottom_frame, text="Decline", state=tk.DISABLED)
+        self.release = Button(self.bottom_frame, text="Release", command=self.client.release, state=tk.DISABLED)
+        self.inform = Button(self.bottom_frame, text="Inform", command=self.client.inform, state=tk.DISABLED)
         self.REQUESTED_IP = IntVar()
         self.SUBNET_MASK = IntVar()
         self.TIME_OFFSET = IntVar()
@@ -38,6 +33,13 @@ class GUI:
         self.REBINDING_TIME = IntVar()
         self.option11 = 1
         self.option12 = 1
+        self.text = Text(self.right_frame, width=50, height=20, background='black', foreground='mediumspringgreen')
+
+    def run(self):
+        self.left_frame1.grid(row=0, column=0)
+        self.left_frame2.grid(row=0, column=1)
+        self.bottom_frame.grid(row=1, column=0, columnspan=3)
+        self.right_frame.grid(row=0, column=2)
 
         o1 = Checkbutton(self.left_frame1, variable=self.REQUESTED_IP, height=2, width=6)
         o2 = Checkbutton(self.left_frame1, variable=self.SUBNET_MASK, height=2, width=6)
@@ -68,8 +70,6 @@ class GUI:
         o10_label = Label(self.left_frame2, text="Option 59: Rebinding Time Value")
         o11_label = Label(self.left_frame1, text="Option 53: Message Type")
         o12_label = Label(self.left_frame2, text="Option 255: End")
-
-        self.text = Text(self.right_frame, width=50, height=20, background='black', foreground='mediumspringgreen')
 
         o1.grid(row=1, column=0)
         o2.grid(row=3, column=0)
@@ -107,4 +107,5 @@ class GUI:
         self.inform.grid(row=0, column=4, padx=5, pady=5)
 
     def setText(self, info):
+        self.text.delete(1.0, END)
         self.text.insert(INSERT, str(info))

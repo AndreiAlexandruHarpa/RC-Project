@@ -64,7 +64,7 @@ class Packet(object):
         if self.gui.REBINDING_TIME.get():
             packet += b'\x3b\x04\x00\x00\x00\x00'
 
-        packet += b'\xff'  # Option 255: Options endmark
+        packet += b'\xff'
         return packet
 
     def unpack(self, packet):
@@ -92,5 +92,3 @@ class Packet(object):
                 continue
             self.options.append((packet[start], length, packet[offset:offset + length]))
             start += 2 + length
-
-        #decodificare optiuni

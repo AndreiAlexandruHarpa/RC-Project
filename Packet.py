@@ -11,7 +11,7 @@ class Packet(object):
         self.HOPS = 0  # Hops: 0
         self.XID = None  # Transaction ID (random)
         self.SECS = 0  # Seconds elapsed: 0
-        self.FLAGS = 0  # Flags: 0
+        self.FLAGS = 32768  # Flags: 8
         self.CIADDR = ipaddress.ip_address('0.0.0.0')  # Client IP address: 0.0.0.0
         self.YIADDR = ipaddress.ip_address('0.0.0.0')  # Your (client) IP address: 0.0.0.0
         self.SIADDR = ipaddress.ip_address('0.0.0.0')  # Next Server IP address: 0.0.0.0
@@ -52,6 +52,9 @@ class Packet(object):
             if self.gui.DOMAIN_NAME.get():
                 length += 1
                 temp += b'\x0f'
+            if self.gui.DNS.get():
+                length += 1
+                temp += b'\x06'
             if length >= 1:
                 packet += b'\x37' + struct.pack('!B', length) + temp
         if self.gui.HOST_NAME.get():
